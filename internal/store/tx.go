@@ -23,6 +23,14 @@ func (s *Store) WithTx(ctx context.Context, fn func(*sql.Tx) error) error {
 	return nil
 }
 
+func AppendEventTx(tx *sql.Tx, event model.Event) error {
+	_, err := tx.Exec(`INSERT INTO events(id,sample_id,event_type,payload,created_at) VALUES(?,?,?,?,?)`, event.ID, event.SampleID, event.EventType, event.Payload, encodeTime(event.CreatedAt))
+	if err != nil {
+		return fmt.Errorf("append event in transaction: %w", err)
+	}
+	return nil
+}
+
 func InsertArchiveTx(tx *sql.Tx, value model.ArchiveRecord) error {
 	_, err := tx.Exec(`INSERT INTO archives(id,sample_id,box_code,sealed_by,seal_state,sealed_at,note) VALUES(?,?,?,?,?,?,?)`,
 		value.ID, value.SampleID, value.BoxCode, value.SealedBy, value.SealState, encodeTime(value.SealedAt), value.Note)

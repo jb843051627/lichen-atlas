@@ -14,11 +14,12 @@ import (
 )
 
 type Application struct {
-	store *store.Store
-	clock clock.Clock
-	queue chan string
-	stop  chan struct{}
-	wg    sync.WaitGroup
+	store     *store.Store
+	clock     clock.Clock
+	queue     chan string
+	stop      chan struct{}
+	wg        sync.WaitGroup
+	closeOnce sync.Once
 }
 
 func NewApplication(s *store.Store, c clock.Clock) *Application {
@@ -29,8 +30,10 @@ func NewApplication(s *store.Store, c clock.Clock) *Application {
 }
 
 func (a *Application) Close() {
-	close(a.stop)
-	a.wg.Wait()
+	a.closeOnce.Do(func() {
+		close(a.stop)
+		a.wg.Wait()
+	})
 }
 
 func (a *Application) worker() {
@@ -75,8 +78,12 @@ func (a *Application) ListSites(ctx context.Context, region string) ([]model.Sit
 }
 
 func (a *Application) RetireSite(ctx context.Context, id string) error {
-	if _, err := a.store.GetSite(ctx, id); err != nil {
+	site, err := a.store.GetSite(ctx, id)
+	if err != nil {
 		return err
+	}
+	if site.IsRetired() {
+		return store.ErrConflict
 	}
 	return a.store.UpdateSiteStatus(ctx, id, "retired", a.Now().Format(time.RFC3339Nano))
 }
@@ -97,14 +104,8 @@ func (a *Application) CreateSample(ctx context.Context, sample model.Sample) err
 	if sample.Status == "" {
 		sample.Status = model.SampleDraft
 	}
-	if err := a.store.CreateSample(ctx, sample); err != nil {
-		return err
-	}
 	event := model.Event{ID: "event-" + sample.ID, SampleID: sample.ID, EventType: "sample.created", CreatedAt: now, Payload: "{}"}
-	if err := a.store.AppendEvent(ctx, event); err != nil {
-		return err
-	}
-	return nil
+	return a.store.CreateSampleWithEvent(ctx, sample, event)
 }
 
 func (a *Application) GetSample(ctx context.Context, id string) (*model.Sample, error) {
@@ -126,6 +127,18 @@ func (a *Application) AddReading(ctx context.Context, reading model.Reading) err
 	if !sample.CanMeasure() && sample.Status != model.SampleMeasured {
 		return fmt.Errorf("sample cannot receive reading")
 	}
+	if err := ValidateEnvironmentReading(reading); err != nil {
+		return err
+	}
+	existing, err := a.store.ListReadings(ctx, reading.SampleID)
+	if err != nil {
+		return err
+	}
+	for _, value := range existing {
+		if value.Kind == reading.Kind && value.RecordedAt.Equal(reading.RecordedAt) {
+			return store.ErrConflict
+		}
+	}
 	if err := a.store.AddReading(ctx, reading); err != nil {
 		return err
 	}
@@ -134,6 +147,9 @@ func (a *Application) AddReading(ctx context.Context, reading model.Reading) err
 }
 
 func (a *Application) ListReadings(ctx context.Context, sampleID string) ([]model.Reading, error) {
+	if _, err := a.store.GetSample(ctx, sampleID); err != nil {
+		return nil, err
+	}
 	return a.store.ListReadings(ctx, sampleID)
 }
 
@@ -171,6 +187,9 @@ func (a *Application) SubmitIdentification(ctx context.Context, value model.Iden
 	if !sample.CanIdentify() {
 		return fmt.Errorf("sample is not ready for identification")
 	}
+	if value.Reviewer == sample.Collector {
+		return fmt.Errorf("collector cannot review own sample")
+	}
 	taxon, err := a.store.GetTaxon(ctx, value.TaxonID)
 	if err != nil {
 		return fmt.Errorf("load taxon: %w", err)
@@ -200,6 +219,13 @@ func (a *Application) ReviewIdentification(ctx context.Context, review model.Rev
 	}
 	if identification.Status != "pending" {
 		return fmt.Errorf("identification is not pending")
+	}
+	sample, err := a.store.GetSample(ctx, review.SampleID)
+	if err != nil {
+		return fmt.Errorf("load review sample: %w", err)
+	}
+	if review.Reviewer == sample.Collector {
+		return fmt.Errorf("collector cannot review own identification")
 	}
 	review.CreatedAt = a.Now()
 	if err := a.store.AddReview(ctx, review); err != nil {
@@ -233,17 +259,23 @@ func (a *Application) ArchiveSample(ctx context.Context, value model.ArchiveReco
 	if !identification.IsAccepted() {
 		return fmt.Errorf("sample identification is not accepted")
 	}
+	if value.SealedBy == sample.Collector || value.SealedBy == identification.Reviewer {
+		return fmt.Errorf("archive operator must be independent")
+	}
 	value.SealedAt = a.Now()
 	value.SealState = "sealed"
 	if err := a.store.WithTx(ctx, func(tx *sql.Tx) error {
 		if err := store.UpdateSampleStateTx(tx, value.SampleID, model.SampleIdentified, model.SampleArchived, value.SealedAt.Format(time.RFC3339Nano)); err != nil {
 			return err
 		}
-		return store.InsertArchiveTx(tx, value)
+		if err := store.InsertArchiveTx(tx, value); err != nil {
+			return err
+		}
+		return store.AppendEventTx(tx, model.Event{ID: "event-archive-" + value.SampleID, SampleID: value.SampleID, EventType: "sample.archived", CreatedAt: value.SealedAt, Payload: "{}"})
 	}); err != nil {
 		return err
 	}
-	return a.store.AppendEvent(ctx, model.Event{ID: "event-archive-" + value.SampleID, SampleID: value.SampleID, EventType: "sample.archived", CreatedAt: value.SealedAt, Payload: "{}"})
+	return nil
 }
 
 func (a *Application) GetArchive(ctx context.Context, sampleID string) (*model.ArchiveRecord, error) {
@@ -270,7 +302,11 @@ func (a *Application) RunNextTask(ctx context.Context) error {
 		return err
 	}
 	if err := a.RefreshSampleReadiness(ctx, task.SampleID); err != nil {
-		return a.store.CompleteTask(ctx, task.ID, a.Now(), err)
+		completeErr := a.store.CompleteTask(ctx, task.ID, a.Now(), err)
+		if completeErr != nil {
+			return fmt.Errorf("process task: %w; complete task: %v", err, completeErr)
+		}
+		return err
 	}
 	return a.store.CompleteTask(ctx, task.ID, a.Now(), nil)
 }

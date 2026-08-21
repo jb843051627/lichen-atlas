@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/jb843051627/lichen-atlas/internal/codec"
 	"github.com/jb843051627/lichen-atlas/internal/model"
+	"github.com/jb843051627/lichen-atlas/internal/store"
 )
 
 func (s *Server) samples(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +34,11 @@ func (s *Server) samples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.app.CreateSample(r.Context(), sample); err != nil {
-		codec.WriteJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		status := http.StatusUnprocessableEntity
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		codec.WriteJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 	codec.WriteJSON(w, http.StatusCreated, sample)

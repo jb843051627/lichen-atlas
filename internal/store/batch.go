@@ -81,6 +81,18 @@ func (s *Store) InsertSampleWithLocation(ctx context.Context, sample model.Sampl
 	})
 }
 
+func (s *Store) CreateSampleWithEvent(ctx context.Context, sample model.Sample, event model.Event) error {
+	if err := sample.Validate(); err != nil {
+		return err
+	}
+	return s.WithTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO samples(id,site_id,collector,condition,status,notes,collected_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, sample.ID, sample.SiteID, sample.Collector, sample.Condition, sample.Status, sample.Notes, encodeTime(sample.CollectedAt), encodeTime(sample.CreatedAt), encodeTime(sample.UpdatedAt)); err != nil {
+			return fmt.Errorf("insert sample: %w", err)
+		}
+		return AppendEventTx(tx, event)
+	})
+}
+
 func (s *Store) MoveSampleStateWithEvent(ctx context.Context, id, from, to, eventID, payload string, at time.Time) error {
 	return s.WithTx(ctx, func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `UPDATE samples SET status=?,updated_at=? WHERE id=? AND status=?`, to, encodeTime(at), id, from)
