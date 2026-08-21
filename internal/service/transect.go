@@ -110,6 +110,7 @@ func NewTransectBuffer() *TransectBuffer {
 }
 
 func (b *TransectBuffer) Put(point TransectPoint) {
+	point.SampleIDs = append([]string(nil), point.SampleIDs...)
 	b.mu.Lock()
 	b.points[point.Code] = point
 	b.mu.Unlock()
