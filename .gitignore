@@ -8,6 +8,7 @@ _docker/
 _verify/
 _generators/
 cases/
+sample-data/
 create_bugs_*.py
 *_fields*.json
 *_fields*.py
