@@ -1,0 +1,7 @@
+.git
+*.db
+*.db-shm
+*.db-wal
+calibration
+_docker
+_verify
