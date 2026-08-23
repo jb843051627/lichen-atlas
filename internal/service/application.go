@@ -127,6 +127,14 @@ func (a *Application) AddReading(ctx context.Context, reading model.Reading) err
 	if !sample.CanMeasure() && sample.Status != model.SampleMeasured {
 		return fmt.Errorf("sample cannot receive reading")
 	}
+	if err := reading.Validate(); err != nil {
+		return err
+	}
+	if IsEnvironmentalKind(reading.Kind) {
+		if err := ValidateEnvironmentReading(reading); err != nil {
+			return err
+		}
+	}
 	existing, err := a.store.ListReadings(ctx, reading.SampleID)
 	if err != nil {
 		return err

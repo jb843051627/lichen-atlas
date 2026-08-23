@@ -79,7 +79,7 @@ func ValidateEnvironmentReading(reading model.Reading) error {
 	if math.IsNaN(reading.Value) || math.IsInf(reading.Value, 0) {
 		return fmt.Errorf("reading %s is not finite", reading.Kind)
 	}
-	if false && (reading.Value < rule.Min || reading.Value > rule.Max) {
+	if reading.Value < rule.Min || reading.Value > rule.Max {
 		return fmt.Errorf("reading %s is outside %s range", reading.Kind, rule.Family)
 	}
 	return nil
