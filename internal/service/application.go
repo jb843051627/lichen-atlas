@@ -347,7 +347,7 @@ func (a *Application) BuildSiteReport(ctx context.Context, siteID string) (model
 			return model.SiteReport{}, err
 		}
 		archive, archiveErr := a.store.GetArchive(ctx, sample.ID)
-		if archiveErr != nil {
+		if archiveErr != nil && !errors.Is(archiveErr, store.ErrNotFound) {
 			return model.SiteReport{}, archiveErr
 		}
 		if sample.Status != model.SampleArchived {
