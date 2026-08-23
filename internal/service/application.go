@@ -304,9 +304,9 @@ func (a *Application) RunNextTask(ctx context.Context) error {
 	if err := a.RefreshSampleReadiness(ctx, task.SampleID); err != nil {
 		completeErr := a.store.CompleteTask(ctx, task.ID, a.Now(), err)
 		if completeErr != nil {
-			return fmt.Errorf("process task: %w; complete task: %v", err, completeErr)
+			return fmt.Errorf("process task: %w; complete task: %w", err, completeErr)
 		}
-		return nil
+		return err
 	}
 	return a.store.CompleteTask(ctx, task.ID, a.Now(), nil)
 }
