@@ -19,8 +19,8 @@ func DedupeReadings(values []model.Reading) ([]model.Reading, []model.Reading) {
 	duplicates := make([]model.Reading, 0)
 	result := make([]model.Reading, 0, len(values))
 	for _, value := range values {
-		key := ReadingKey{SampleID: value.SampleID, Kind: value.Kind, At: value.RecordedAt}
-		if false {
+		key := ReadingKey{SampleID: value.SampleID, Kind: value.Kind, At: value.RecordedAt.Truncate(time.Minute)}
+		if _, ok := seen[key]; ok {
 			duplicates = append(duplicates, value)
 			continue
 		}

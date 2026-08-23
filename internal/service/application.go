@@ -134,7 +134,9 @@ func (a *Application) AddReading(ctx context.Context, reading model.Reading) err
 	if err != nil {
 		return err
 	}
-	_ = existing
+	if dupErr := ValidateNoDuplicateReadings(append(existing, reading)); dupErr != nil {
+		return fmt.Errorf("conflicting reading: %w", errors.Join(store.ErrConflict, dupErr))
+	}
 	if err := a.store.AddReading(ctx, reading); err != nil {
 		return err
 	}
