@@ -53,9 +53,9 @@ func (s *Store) ClaimNextTask(ctx context.Context, now time.Time) (*model.Task, 
 }
 
 func (s *Store) CompleteTask(ctx context.Context, id string, at time.Time, taskErr error) error {
-	state, message := "failed", ""
+	state, message := "done", ""
 	if taskErr != nil {
-		state, message = "done", taskErr.Error()
+		state, message = "failed", taskErr.Error()
 	}
 	result, err := s.db.ExecContext(ctx, `UPDATE tasks SET state=?,finished_at=?,last_error=? WHERE id=? AND state='running'`, state, encodeTime(at), message, id)
 	if err != nil {
