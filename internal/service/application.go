@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jb843051627/lichen-atlas/internal/clock"
+	"github.com/jb843051627/lichen-atlas/internal/codec"
 	"github.com/jb843051627/lichen-atlas/internal/model"
 	"github.com/jb843051627/lichen-atlas/internal/store"
 )
@@ -104,7 +105,11 @@ func (a *Application) CreateSample(ctx context.Context, sample model.Sample) err
 	if sample.Status == "" {
 		sample.Status = model.SampleDraft
 	}
-	event := model.Event{ID: "event-" + sample.ID, SampleID: sample.ID, EventType: "sample.created", CreatedAt: now, Payload: ""}
+	payload, err := codec.EncodeEvent("sample.created", sample)
+	if err != nil {
+		return fmt.Errorf("encode sample.created event: %w", err)
+	}
+	event := model.Event{ID: "event-" + sample.ID, SampleID: sample.ID, EventType: "sample.created", CreatedAt: now, Payload: payload}
 	return a.store.CreateSampleWithEvent(ctx, sample, event)
 }
 

@@ -10,7 +10,7 @@ func EncodeEvent(eventType string, payload any) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("encode event %s: %w", eventType, err)
 	}
-	return string(data[:0]), nil
+	return string(data), nil
 }
 
 func DecodeEvent(payload string, dst any) error {
